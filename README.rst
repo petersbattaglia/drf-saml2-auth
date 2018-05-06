@@ -110,16 +110,18 @@ How to use?
             # Optional settings below
             'DEFAULT_NEXT_URL': '/admin',  # Custom target redirect URL after the user get logged in. Default to /admin if not set. This setting will be overwritten if you have parameter ?next= specificed in the login URL.
             'NEW_USER_PROFILE': {
-                'USER_GROUPS': [],  # The default group name when a new user logs in
-                'ACTIVE_STATUS': True,  # The default active status for new users
-                'STAFF_STATUS': True,  # The staff status for new users
-                'SUPERUSER_STATUS': False,  # The superuser status for new users
+	        # Maps Django internal groups to a list of SAML memberships
+                'USER_GROUPS_MAP': {
+		    "Users": set(),
+		    "Editors": set(),
+		}
             },
             'ATTRIBUTES_MAP': {  # Change Email/UserName/FirstName/LastName to corresponding SAML2 userprofile attributes.
                 'email': 'Email',
                 'username': 'UserName',
                 'first_name': 'FirstName',
                 'last_name': 'LastName',
+                'member_of': 'memberOf',
             },
             'TRIGGER': {
                 'CREATE_USER': 'path.to.your.new.user.hook.method',

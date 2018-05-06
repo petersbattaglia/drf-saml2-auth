@@ -58,7 +58,6 @@ def get_reverse(objs):
             return reverse(obj)
         except:
             pass
-    raise Exception('We got a URL reverse issue: %s. This is a known issue but please still submit a ticket at https://github.com/fangli/django-saml2-auth/issues/new' % str(objs))
 
 
 def _get_saml_client(domain):
@@ -102,23 +101,45 @@ def _get_saml_client(domain):
     return saml_client
 
 
-def _create_new_user(username, email, firstname, lastname):
+def _create_new_user(username, email, first_name, last_name, user_saml_groups=set()):
     user = User.objects.create_user(username, email)
-    user.first_name = firstname
-    user.last_name = lastname
-    groups = [Group.objects.get(name=x) for x in settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('USER_GROUPS', [])]
-    if parse_version(get_version()) >= parse_version('2.0'):
-        user.groups.set(groups)
-    else:
-        user.groups = groups
-    user.is_active = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('ACTIVE_STATUS', True)
-    user.is_staff = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('STAFF_STATUS', False)
-    user.is_superuser = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('SUPERUSER_STATUS', False)
+    user.first_name = first_name
+    user.last_name = last_name
+
+    user_group_map = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('USER_GROUPS_MAP', {})
+
+    for group in user_group_map:
+        django_group = Group.objects.get(name=group)
+        allowed_saml_groups = user_group_map[group] or set()
+
+        if len(user_saml_groups & allowed_saml_groups) > 0:
+            user.groups.add(django_group)
+
     user.save()
     return user
 
-def _update_existing_user():
-    user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('email', 'Email')][0]
+def _update_existing_user(user, username, email, first_name, last_name, user_saml_groups=set()):
+    # update user fields
+    user.first_name = first_name
+    user.last_name = last_name
+    user.email = email
+
+    user_group_map = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('USER_GROUPS_MAP', {})
+
+    for group in user_group_map:
+        django_group = Group.objects.get(name=group)
+        allowed_saml_groups = user_group_map[group] or set()
+        user_allowed = len(user_saml_groups & allowed_saml_groups) > 0
+
+        if django_group in user.groups:
+            if not user_allowed:
+                user.groups.remove(django_group)
+        else:
+            if user_allowed:
+                user.groups.add(django_group)
+
+    user.save()
+    return user
 
 def _create_user_token(user, user_saml_identity=None):
     token_cls = type(target_user.auth_token)
@@ -154,16 +175,18 @@ def acs(r):
     user_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('username', 'UserName')][0]
     user_first_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('first_name', 'FirstName')][0]
     user_last_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('last_name', 'LastName')][0]
+    groups = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('member_of', 'memberOf')]
 
     target_user = None
     is_new_user = False
 
     try:
         target_user = User.objects.get(username=user_name)
+        target_user = _update_existing_user(target_user, user_name, user_email, user_first_name, user_last_name, groups)
         if settings.SAML2_AUTH.get('TRIGGER', {}).get('BEFORE_LOGIN', None):
             import_string(settings.SAML2_AUTH['TRIGGER']['BEFORE_LOGIN'])(target_user, user_identity)
     except User.DoesNotExist:
-        target_user = _create_new_user(user_name, user_email, user_first_name, user_last_name)
+        target_user = _create_new_user(user_name, user_email, user_first_name, user_last_name, groups)
         if settings.SAML2_AUTH.get('TRIGGER', {}).get('CREATE_USER', None):
             import_string(settings.SAML2_AUTH['TRIGGER']['CREATE_USER'])(target_user, user_identity)
         is_new_user = True
