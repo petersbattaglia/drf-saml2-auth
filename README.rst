@@ -1,42 +1,23 @@
 =====================================
-Django SAML2 Authentication Made Easy
+DRF SAML2 Authentication
 =====================================
 
-:Author: Fang Li
-:Version: Use 1.1.4 for Django <=1.9 and 2.x.x for Django >= 1.9
+:Author: Peter Battaglia
 
-.. image:: https://img.shields.io/pypi/pyversions/django-saml2-auth.svg
-    :target: https://pypi.python.org/pypi/django-saml2-auth
-
-.. image:: https://img.shields.io/pypi/v/django-saml2-auth.svg
-    :target: https://pypi.python.org/pypi/django-saml2-auth
-
-.. image:: https://img.shields.io/pypi/dm/django-saml2-auth.svg
-        :target: https://pypi.python.org/pypi/django-saml2-auth
-
-This project aims to provide a dead simple way to integrate SAML2
-Authentication into your Django powered app. Try it now, and get rid of the
-complicated configuration of SAML.
+Based off of the django-saml2-auth project, this project aims to provide simple
+way to integrate SAML2 Authentication into your Django app. Specifically, this
+project doesn't assume you are using Django to serve the front-end of your app,
+allowing your SPA to seemlessly integrate with your SSO provider.
 
 Any SAML2 based SSO(Single-Sign-On) identity provider with dynamic metadata
-configuration is supported by this Django plugin, for example Okta.
-
-
-
-Donate
-======
-
-We accept your donations by clicking the awesome |star| instead of any physical transfer.
-
-.. |star| image:: https://img.shields.io/github/stars/fangli/django-saml2-auth.svg?style=social&label=Star&maxAge=86400
-
+configuration is supported by this Django plugin, for example Okta or OneLogin.
 
 
 Dependencies
 ============
 
-This plugin is compatible with Django 1.6/1.7/1.8/1.9/1.10. The `pysaml2` Python
-module is required.
+This plugin is compatible and has been tested with with Django 1.10.
+The `pysaml2` Python module is required.
 
 
 
@@ -47,14 +28,14 @@ You can install this plugin via `pip`:
 
 .. code-block:: bash
 
-    # pip install django_saml2_auth
+    # pip install drf_saml2_auth
 
 or from source:
 
 .. code-block:: bash
 
-    # git clone https://github.com/fangli/django-saml2-auth
-    # cd django-saml2-auth
+    # git clone https://github.com/petersbattaglia/drf-saml2-auth
+    # cd drf-saml2-auth
     # python setup.py install
 
 xmlsec is also required by pysaml2:
@@ -69,11 +50,11 @@ xmlsec is also required by pysaml2:
 What does this plugin do?
 =========================
 
-This plugin takes over Django's login page and redirect the user to a SAML2
-SSO authentication service. Once the user is logged in and redirected back,
-the plugin will check if the user is already in the system. If not, the user
-will be created using Django's default UserModel, otherwise the user will be
-redirected to their last visited page.
+This plugin provides an API endpoint for your DRF app that your existing SPA
+can navigate to to begin an authenitcation flow with a SAML2 SSO authentication service.
+Once the user is logged in and redirected back, the plugin will update/create the user in
+the django user model, redirect to the page of the SPAs choosing, while delivering a secure
+cookie to the SPA to use for future requests.
 
 
 
@@ -84,7 +65,7 @@ How to use?
 
     .. code-block:: python
 
-        import django_saml2_auth.views
+        import drf_saml2_auth.views
 
 #. Override the default login page in the root urls.py file, by adding these
    lines **BEFORE** any `urlpatterns`:
@@ -93,28 +74,28 @@ How to use?
 
         # These are the SAML2 related URLs. You can change "^saml2_auth/" regex to
         # any path you want, like "^sso_auth/", "^sso_login/", etc. (required)
-        url(r'^saml2_auth/', include('django_saml2_auth.urls')),
+        url(r'^saml2_auth/', include('drf_saml2_auth.urls')),
 
         # The following line will replace the default user login with SAML2 (optional)
         # If you want to specific the after-login-redirect-URL, use parameter "?next=/the/path/you/want"
         # with this view.
-        url(r'^accounts/login/$', django_saml2_auth.views.signin),
+        url(r'^accounts/login/$', drf_saml2_auth.views.signin),
 
         # The following line will replace the admin login with SAML2 (optional)
         # If you want to specific the after-login-redirect-URL, use parameter "?next=/the/path/you/want"
         # with this view.
-        url(r'^admin/login/$', django_saml2_auth.views.signin),
+        url(r'^admin/login/$', drf_saml2_auth.views.signin),
 
-#. Add 'django_saml2_auth' to INSTALLED_APPS
+#. Add 'drf_saml2_auth' to INSTALLED_APPS
 
     .. code-block:: python
 
         INSTALLED_APPS = [
             '...',
-            'django_saml2_auth',
+            'drf_saml2_auth',
         ]
 
-#. In settings.py, add the SAML2 related configuration.
+#. In settings.py, add the SAML2 related configuration DOCS IN PROGRESS!!.
 
     Please note, the only required setting is **METADATA_AUTO_CONF_URL**.
     The following block shows all required and optional configuration settings
@@ -186,88 +167,3 @@ behind a reverse proxy.
 
 **NAME_ID_FORMAT** Set to the string 'None', to exclude sending the 'Format' property of the 'NameIDPolicy' element in authn requests.
 Default value if not specified is 'urn:oasis:names:tc:SAML:2.0:nameid-format:transient'.
-
-Customize
-=========
-
-The default permission `denied` page and user `welcome` page can be
-overridden.
-
-To override these pages put a template named 'django_saml2_auth/welcome.html'
-or 'django_saml2_auth/denied.html' in your project's template folder.
-
-If a 'django_saml2_auth/welcome.html' template exists, that page will be shown
-to the user upon login instead of the user being redirected to the previous
-visited page. This welcome page can contain some first-visit notes and welcome
-words. The `Django user object <https://docs.djangoproject.com/en/1.9/ref/contrib/auth/#django.contrib.auth.models.User>`_
-is available within the template as the `user` template variable.
-
-To enable a logout page, add the following lines to urls.py, before any
-`urlpatterns`:
-
-.. code-block:: python
-
-    # The following line will replace the default user logout with the signout page (optional)
-    url(r'^accounts/logout/$', django_saml2_auth.views.signout),
-
-    # The following line will replace the default admin user logout with the signout page (optional)
-    url(r'^admin/logout/$', django_saml2_auth.views.signout),
-
-To override the built in signout page put a template named
-'django_saml2_auth/signout.html' in your project's template folder.
-
-If your SAML2 identity provider uses user attribute names other than the
-defaults listed in the `settings.py` `ATTRIBUTES_MAP`, update them in
-`settings.py`.
-
-
-For Okta Users
-==============
-
-I created this plugin originally for Okta.
-
-The METADATA_AUTO_CONF_URL needed in `settings.py` can be found in the Okta
-web UI by navigating to the SAML2 app's `Sign On` tab, in the Settings box.
-You should see :
-
-`Identity Provider metadata is available if this application supports dynamic configuration.`
-
-The `Identity Provider metadata` link is the METADATA_AUTO_CONF_URL.
-
-
-How to Contribute
-=================
-
-#. Check for open issues or open a fresh issue to start a discussion around a feature idea or a bug.
-#. Fork `the repository`_ on GitHub to start making your changes to the **master** branch (or branch off of it).
-#. Write a test which shows that the bug was fixed or that the feature works as expected.
-#. Send a pull request and bug the maintainer until it gets merged and published. :) Make sure to add yourself to AUTHORS_.
-
-.. _`the repository`: http://github.com/fangli/django-saml2-auth
-.. _AUTHORS: https://github.com/fangli/django-saml2-auth/blob/master/AUTHORS.rst
-
-
-Release Log
-===========
-
-2.2.0: ADFS SAML compatibility and fixed some issue for Django2.0
-
-2.1.2: Merged #35
-
-2.1.1: Added ASSERTION_URL in settings.
-
-2.1.0: Add DEFAULT_NEXT_URL. Issue #19.
-
-2.0.4: Fixed compatibility with Windows.
-
-2.0.3: Fixed a vulnerabilities in the login flow, thanks qwrrty.
-
-2.0.1: Add support for Django 1.10
-
-1.1.4: Fixed urllib bug
-
-1.1.2: Added support for Python 2.7/3.x
-
-1.1.0: Added support for Django 1.6/1.7/1.8/1.9
-
-1.0.4: Fixed English grammar mistakes
