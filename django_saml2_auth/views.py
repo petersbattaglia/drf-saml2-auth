@@ -19,7 +19,7 @@ from django.contrib.auth import login, logout
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.template import TemplateDoesNotExist
-from django.http import HttpResponseRedirect
+from django.http import (HttpResponse, HttpResponseRedirect)
 from django.utils.http import is_safe_url
 
 try:
@@ -102,18 +102,6 @@ def _get_saml_client(domain):
     return saml_client
 
 
-@login_required
-def welcome(r):
-    try:
-        return render(r, 'django_saml2_auth/welcome.html', {'user': r.user})
-    except TemplateDoesNotExist:
-        return HttpResponseRedirect(settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
-
-
-def denied(r):
-    return render(r, 'django_saml2_auth/denied.html')
-
-
 def _create_new_user(username, email, firstname, lastname):
     user = User.objects.create_user(username, email)
     user.first_name = firstname
@@ -124,12 +112,26 @@ def _create_new_user(username, email, firstname, lastname):
     else:
         user.groups = groups
     user.is_active = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('ACTIVE_STATUS', True)
-    user.is_staff = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('STAFF_STATUS', True)
+    user.is_staff = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('STAFF_STATUS', False)
     user.is_superuser = settings.SAML2_AUTH.get('NEW_USER_PROFILE', {}).get('SUPERUSER_STATUS', False)
     user.save()
     return user
 
+def _update_existing_user():
+    user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('email', 'Email')][0]
 
+def _create_user_token(user, user_saml_identity=None):
+    token_cls = type(target_user.auth_token)
+    try:
+        # delete the current token, if one exists 
+        token_cls.objects.get(user=target_user).delete()
+    except token_cls.DoesNotExist:
+        pass
+
+    token = token_cls.objects.create(user=target_user)
+
+    return token.key
+    
 @csrf_exempt
 def acs(r):
     saml_client = _get_saml_client(get_current_domain(r))
@@ -137,16 +139,16 @@ def acs(r):
     next_url = r.session.get('login_next_url', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
 
     if not resp:
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
+        return HttpResponse('Unauthorized', status=401)
 
     authn_response = saml_client.parse_authn_request_response(
         resp, entity.BINDING_HTTP_POST)
     if authn_response is None:
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
+        return HttpResponse('Unauthorized', status=401)
 
     user_identity = authn_response.get_identity()
     if user_identity is None:
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
+        return HttpResponse('Unauthorized', status=401)
 
     user_email = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('email', 'Email')][0]
     user_name = user_identity[settings.SAML2_AUTH.get('ATTRIBUTES_MAP', {}).get('username', 'UserName')][0]
@@ -159,28 +161,24 @@ def acs(r):
     try:
         target_user = User.objects.get(username=user_name)
         if settings.SAML2_AUTH.get('TRIGGER', {}).get('BEFORE_LOGIN', None):
-            import_string(settings.SAML2_AUTH['TRIGGER']['BEFORE_LOGIN'])(user_identity)
+            import_string(settings.SAML2_AUTH['TRIGGER']['BEFORE_LOGIN'])(target_user, user_identity)
     except User.DoesNotExist:
         target_user = _create_new_user(user_name, user_email, user_first_name, user_last_name)
         if settings.SAML2_AUTH.get('TRIGGER', {}).get('CREATE_USER', None):
-            import_string(settings.SAML2_AUTH['TRIGGER']['CREATE_USER'])(user_identity)
+            import_string(settings.SAML2_AUTH['TRIGGER']['CREATE_USER'])(target_user, user_identity)
         is_new_user = True
 
     r.session.flush()
 
-    if target_user.is_active:
-        target_user.backend = 'django.contrib.auth.backends.ModelBackend'
-        login(r, target_user)
-    else:
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
+    redirect = HttpResponseRedirect(next_url)
 
-    if is_new_user:
-        try:
-            return render(r, 'django_saml2_auth/welcome.html', {'user': r.user})
-        except TemplateDoesNotExist:
-            return HttpResponseRedirect(next_url)
-    else:
-        return HttpResponseRedirect(next_url)
+    if settings.SAML2_AUTH.get('CREATE_TOKEN_COOKIE', False):
+        token_key = _create_user_token(target_user)
+        token_cookie_name = settings.SAML2_AUTH.get('TOKEN_COOKIE_NAME', 'token')
+
+        redirect.set_cookie(token_cookie_name, token_key, secure=True)
+
+    return redirect
 
 
 def signin(r):
@@ -190,17 +188,19 @@ def signin(r):
     except:
         import urllib.parse as _urlparse
         from urllib.parse import unquote
-    next_url = r.GET.get('next', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
+    next_url = r.GET.get('next', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL'))
 
     try:
         if 'next=' in unquote(next_url):
             next_url = _urlparse.parse_qs(_urlparse.urlparse(unquote(next_url)).query)['next'][0]
     except:
-        next_url = r.GET.get('next', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL', get_reverse('admin:index')))
+        next_url = r.GET.get('next', settings.SAML2_AUTH.get('DEFAULT_NEXT_URL'))
 
-    # Only permit signin requests where the next_url is a safe URL
-    if not is_safe_url(next_url):
-        return HttpResponseRedirect(get_reverse([denied, 'denied', 'django_saml2_auth:denied']))
+    if not next_url:
+        return HttpResponse('Unauthorized', status=401)
+
+    if not is_safe_url(next_url, allowed_hosts=settings.ALLOWED_HOSTS):
+        return HttpResponse('Unauthorized', status=401)
 
     r.session['login_next_url'] = next_url
 
@@ -219,4 +219,4 @@ def signin(r):
 
 def signout(r):
     logout(r)
-    return render(r, 'django_saml2_auth/signout.html')
+    return HttpResponse('Unauthorized', status=200)
