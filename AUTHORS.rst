@@ -1,11 +1,11 @@
-This project is written and maintained by Fang Li and
-various contributors:
+This project is written by Peter Battaglia and was based off
+of the django-saml2-auth project maintained by Fang Li:
+https://github.com/fangli/django-saml2-auth
 
 
-Django Saml2 Auth
------------------
-
-- Fang Li
+DRF SAML2 Auth Contributors
+------------
+- `Peter Battaglia <https://github.com/petersbattaglia>`_
 
 
 
@@ -16,7 +16,7 @@ Pysaml2
 
 
 
-Contributors
+Django Saml2 Auth Contributors
 ------------
 
 - `DSpeichert <https://github.com/DSpeichert>`_
